@@ -163,24 +163,32 @@ For all-sources (no source filter), combine into 1 query with 5 filterGroups
 - ~10–20 deal property fetches for filtered contacts
 - Total: ~365–470 API calls (higher due to company-level filtering)
 
-### Step 4: Output Format (STANDARD)
+### Step 4: Count Deals and deal stages, collect record details
 
-**ALWAYS generate TWO files:**
+- Search for deals associated with contacts in each cohort
+- Filter to Sales Pipeline (pipeline=default)
+- Count how many deals are currently at each stage (S1 through S7, Won, Lost)
+- The "Deals" column = sum of all stage counts (S1+S2+...+S7+Won+Lost)
+- **Collect record details** for the links sheet: for each deal, save its ID, name,
+  stage, amount, and associated contact name/ID
 
-**File 1: Excel Funnel Analysis** (`{cohort}_funnel_analysis.xlsx`)
-- **Sheet 1 "Cohort Funnel"**: Table showing stage-by-stage progression with conversion rates
-- **Sheet 2 "Pipeline Breakdown"**: Show excluded contacts by reason (Mixed Pipeline, Renewal Only, etc.)
-- **Sheet 3 "Deal Details"**: List individual deals with company, contact, amount, stage, outcome
-- Use professional formatting: headers, borders, currency formatting, conditional formatting
+### Step 5: Generate Excel
 
-**File 2: Word Insights Document** (`{cohort}_insights.docx`)
-- **Executive Summary**: Key findings and headline metrics
-- **Sales Pipeline Definition**: Explain the company-level filtering logic
-- **Root Cause Analysis**: Why contacts didn't convert (from Gong/qualitative data if available)
-- **Strategic Recommendations**: Prioritized action items with expected impact
-- Use professional formatting: styled headings, tables, bullet points
+Use `scripts/build_excel.py` — pass it a JSON file with the cohort data structure.
+Also follow the xlsx skill formatting guidelines.
 
-**Do NOT output markdown tables.** The Excel + Word format is required for all cohort analyses.
+Sheet structure:
+- **"All Sources"**: Full cohort table with counts + inline conversion rates below
+- **One sheet per active source**: Same structure, filtered
+- **"Conversion Rates"**: Dedicated stage-to-stage conversion percentages
+- **"Record Links"**: Every count cell should be backed by a detail sheet listing
+  individual records with clickable HubSpot URLs. See "Record Links" section below.
+- **Sub-slice sheets** (if user requests): Break down by drill-down 1 or 2
+
+### Step 6: Save and deliver
+
+Save to the workspace folder with a descriptive filename like
+`hubspot_cohort_<start>_to_<end>.xlsx`
 
 ## Error Handling
 
@@ -207,20 +215,70 @@ sales-only cohort metrics. Do NOT skip this step.
 
 **Expected exclusion rate:** 30–50% of raw contacts will be filtered out as non-sales pipeline.
 
-## Excel & Word Generation
+## Handling Sub-Slices
 
-Use the **xlsx skill** and **docx skill** to generate the output files:
+When the user asks to "break down by conference" or "show me Facebook campaigns":
 
-**For Excel:**
-- Invoke the xlsx skill with proper sheet structure
-- Include formulas for conversion rates (not hardcoded values)
-- Use professional formatting: borders, conditional formatting, currency formats
+1. Identify which source level they mean (drill-down 1 or drill-down 2)
+2. First, discover the distinct values by fetching a sample (limit=100) with that
+   source filter to see what drill-down values exist
+3. Run the same counting logic with the additional drill-down filter
+4. Add a new sheet per sub-slice value
 
-**For Word:**
-- Invoke the docx skill with proper heading hierarchy
-- Use tables for structured data (objections, recommendations)
-- Use bullet points for lists (NOT manual Unicode bullets)
-- Professional styling: Arial font, blue headers (#2E5090), proper spacing
+## Record Links
+
+Every count in the cohort table should let the user drill into the underlying records.
+The Excel workbook includes a **"Record Links"** sheet with individual records grouped
+by cohort month, source, and funnel stage.
+
+### What to include
+
+| Funnel stage | Record type | Properties to fetch | HubSpot URL pattern |
+|-------------|-------------|--------------------|--------------------|
+| Contacts | Contact | firstname, lastname, email, createdate | `https://app-eu1.hubspot.com/contacts/25666518/record/0-1/{id}` |
+| Leads | Contact | firstname, lastname, email, lifecyclestage | `https://app-eu1.hubspot.com/contacts/25666518/record/0-1/{id}` |
+| Deals, S1-S7, Won, Lost | Deal | dealname, dealstage, amount, closedate | `https://app-eu1.hubspot.com/contacts/25666518/record/0-3/{id}` |
+
+### Token-aware approach for links
+
+For large counts (>50 records), don't fetch every single record. Instead:
+- Fetch the first 50 records with their details
+- Add a row at the bottom: "... and {remaining} more"
+- In the cohort summary cells, add an Excel hyperlink that jumps to the
+  corresponding section in the Record Links sheet
+
+For small counts (<50), fetch all records and list them individually.
+
+### Record Links sheet structure
+
+Each section in the sheet is organized as:
+
+```
+[Month] | [Source] | [Stage]
+Name | Email/Deal Name | Amount | HubSpot Link
+record 1...
+record 2...
+(blank row)
+[next section]
+```
+
+### Linking summary cells to detail
+
+In the cohort summary sheets, make each count cell a clickable hyperlink that
+jumps to the corresponding section in the Record Links sheet. Use Excel internal
+links: `=HYPERLINK("#'Record Links'!A{row}", count_value)`
+
+This way the user can click any number in the cohort table and immediately see
+which contacts or deals make up that count.
+
+## Edge Cases
+
+- **No data for a month/source**: Show 0, don't skip the row
+- **Very old data**: If user asks for >24 months, suggest last 12 and confirm
+- **Multiple pipelines**: Only use Sales Pipeline (pipeline=default). Contacts whose
+  ONLY deals are in non-Sales pipelines (CS, Renewal & Upsell, Partnerships) must be
+  excluded from ALL funnel stages — Contacts, Leads, and Deals — not just from Deals
+- **Closed Lost**: Show as its own column, not part of the cumulative deal stage progression
 
 ## Reference
 
